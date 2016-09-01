@@ -4,16 +4,11 @@ import math
 class Spline:
     def __init__(self, coefficients, horizontal_knots, spline_degree=3):
         self.k = spline_degree
-        self.g = len(horizontal_knots) - 2
-        self.a = horizontal_knots[0]
-        self.b = horizontal_knots[self.g + 1]
         self.m_k_fact = math.factorial(self.k)
-        self.m_coefs = coefficients
-
-        self.m_knots = [self.a] * (self.k + 1) + [0] * self.g + [self.b] * (self.k + 1)
-        for i in range(self.k + 1, self.g + self.k + 1):
-            self.m_knots[i] = horizontal_knots[i - self.k]
-
+        self.set_coefficients(coefficients)
+        self.set_knots(horizontal_knots)
+        self.set_left_edge(min(horizontal_knots))
+        self.set_right_edge(max(horizontal_knots))
         self.m_temp = [0] * (self.k + 1)
 
     def get_left_node_index(self, point, min_id=0):
@@ -69,11 +64,11 @@ class Spline:
             return self.m_temp
 
         l = self.get_left_node_index(point)
-        for i in range(deg + 1):
+        for i in range(deg):
             self.m_temp[i] = 0
         self.m_temp[deg] = 1
 
-        for r in range(1, deg):
+        for r in range(1, deg + 1):
             v = l - r + 1
             w2 = (self.m_knots[v + r] - point) / (self.m_knots[v + r] - self.m_knots[v])
             self.m_temp[deg - r] = w2 * self.m_temp[deg - r + 1]
@@ -289,8 +284,22 @@ class Spline:
     def get_knots(self):
         return self.m_knots
 
+    def set_knots(self, knots):
+        self.g = len(knots) - 2
+        self.a = knots[0]
+        self.b = knots[self.g + 1]
+        self.m_knots = [self.a] * (self.k + 1) + [0] * self.g + [self.b] * (self.k + 1)
+        for i in range(self.k + 1, self.g + self.k + 1):
+            self.m_knots[i] = knots[i - self.k]
+
     def get_coefficients(self):
         return self.m_coefs
 
     def set_coefficients(self, coefficients):
         self.m_coefs = coefficients
+
+    def set_left_edge(self, left_edge):
+        self.a = left_edge
+
+    def set_right_edge(self, right_edge):
+        self.b = right_edge
