@@ -7,20 +7,16 @@ import math
 
 class CurveFitter:
     def __init__(self, spline):
-        self.m_A_is_allocated = False
-        self.m_norm_factors_are_counted = False
-        self.m_gamma = self.m_beta = self.m_mu = 1
         self.m_delta = 0
         self.p = 0
         self.m_error = 0
         self.m_penalty = self.penalty(spline)
 
     def penalty(self, spline):
-        k = spline.get_degree()
-        g = spline.get_internal_knots_num()
         knots = spline.get_knots()
+        g = spline.get_internal_knots_num()
         self.m_penalty = 0
-        for i in range(k, g + k + 1):
+        for i in range(g + 1):
             self.m_penalty += 1.0 / (knots[i + 1] - knots[i])
         self.m_error = self.m_delta + self.p * self.m_penalty
         return self.m_penalty
@@ -28,6 +24,8 @@ class CurveFitter:
     @staticmethod
     def interpolate_natural(spline, points):
         k = spline.get_degree()
+        if not k == 3:
+            return False  # todo: do interpolation for k != 3
         n = len(points)
         x = points.x
         spline.set_knots(x)
@@ -59,6 +57,8 @@ class CurveFitter:
     @staticmethod
     def interpolate_clamped(spline, points, left_bound, right_bound):
         k = spline.get_degree()
+        if not k == 3:
+            return False  # todo: do interpolation for k != 3
         n = len(points)
         x = points.x
         spline.set_knots(x)
@@ -85,13 +85,13 @@ class CurveFitter:
 
         return True
 
-    def delta(self, spline, points, sw):
+    def delta(self, spline, points, smoothing_weight):
         self.m_delta = 0
         for i in range(len(points)):
             e = points[i].w * (points[i].y - spline.get_value(points[i].x))
             self.m_delta += e * e
         nu = 0
-        if sw > 0:
+        if smoothing_weight > 0:
             k = spline.get_degree()
             g = spline.get_internal_knots_num()
             coefficients = spline.get_coefficients()
@@ -100,7 +100,7 @@ class CurveFitter:
                 for i in range(q - k - 1, q + 1):
                     e += coefficients[i] * spline.get_lead_derivative_difference(i, q)
                     nu += e * e
-            nu *= sw
+            nu *= smoothing_weight
         self.m_delta += nu
         self.m_error = self.m_delta + self.p * self.m_penalty
         return self.m_delta
@@ -118,20 +118,20 @@ class CurveFitter:
     def error(self, spline, points, sw):
         return self.delta(spline, points, sw) + self.p * self.penalty(spline)
 
-    def error_derivative(self, spline, points, sw, knot_id):
+    def error_derivative(self, spline, points, smoothing_weight, knot_id):
         # least-square error
         grad_error = 0
         for i in range(len(points)):
             w_sq = points[i].w * points[i].w
             diff = points[i].y - spline.get_value(points[i].x)
-            grad_error -= spline.get_value_derivative_knot(points[i].x, knot_id) * w_sq * diff
+            grad_error -= spline.get_value_derivative_knot(points[i].x, knot_id + spline.get_degree()) * w_sq * diff
 
         # penalty error
         if self.p > 0:
             grad_error += 0.5 * self.p * self.penalty_derivative(spline, knot_id)
 
         # smoothing error
-        if sw > 0:
+        if smoothing_weight > 0:
             sm_error = 0
             k = spline.get_degree()
             g = spline.get_internal_knots_num()
@@ -143,19 +143,18 @@ class CurveFitter:
                     ci = coefficients[i]
                     lead_der_diff = spline.get_lead_derivative_difference(i, q)
                     sum1 += ci * lead_der_diff
-                    sum2 += ci * spline.get_lead_der_diff_der_knot(lead_der_diff, i, q, knot_id)
+                    sum2 += ci * spline.get_lead_der_diff_der_knot(lead_der_diff, i, q, knot_id + spline.get_degree())
                 sm_error += sum1 * sum2
-            grad_error += sw * sm_error
+            grad_error += smoothing_weight * sm_error
         return 2 * grad_error
 
     def theta(self, spline, points, sw, alpha):
-        k = spline.get_degree()
         g = spline.get_internal_knots_num()
         knots = [0] * (g + 2)
         knots[0] = spline.get_left_bound()
         knots[g + 1] = spline.get_right_bound()
         for i in range(g):
-            knots[i + 1] = self.m_fixed_knots[i + k + 1] + alpha * self.m_dir[i]
+            knots[i + 1] = self.fixed_knots[i + 1] + alpha * self.dir[i]
         spline.set_knots(knots)
 
         if self.approximate(spline, points, sw):
@@ -167,11 +166,11 @@ class CurveFitter:
         return sum(i * i for i in v)
 
     @staticmethod
-    def approximate(spline, points, sw):
+    def approximate(spline, points, smoothing_weight):
         k = spline.get_degree()
         g = spline.get_internal_knots_num()
         n = len(points)
-        coefs = [0] * (g + k + 1)
+        coefficients = [0] * (g + k + 1)
         A = [[0 for i in range(g + k + 1)] for j in range(g + k + 1)]
 
         # spline error
@@ -185,76 +184,58 @@ class CurveFitter:
                 w_sq = points[r].w * points[r].w
                 for j in range(i + 1):
                     A[i + l - k][j + l - k] += w_sq * b_splines[i] * b_splines[j]
-                coefs[i + l - k] += w_sq * points[r].y * b_splines[i]
+                coefficients[i + l - k] += w_sq * points[r].y * b_splines[i]
 
-        # smoothing
-        if sw > 0:
+        # smoothing error
+        if smoothing_weight > 0:
             for q in range(g):
                 for i in range(q, q + k + 2):
                     ai = spline.get_lead_derivative_difference(i, q + k + 1)
                     for j in range(q, i + 1):
-                        A[i][j] += sw * ai * spline.get_lead_derivative_difference(j, q + k + 1)
+                        A[i][j] += smoothing_weight * ai * spline.get_lead_derivative_difference(j, q + k + 1)
 
         for i in range(g + k + 1):
             for j in range(i):
                 A[j][i] = A[i][j]
 
-        # solve equation
+        # decompose A = LU
         L = np.linalg.cholesky(A)
 
         # solve Lx = r
         for i in range(g + k + 1):
             for j in range(i):
-                coefs[i] -= L[i][j] * coefs[j]
-            coefs[i] /= L[i][i]
+                coefficients[i] -= L[i][j] * coefficients[j]
+            coefficients[i] /= L[i][i]
 
         # solve Uy = x
         for i in reversed(range(g + k + 1)):
             for j in reversed(range(i + 1, g + k + 1)):
-                coefs[i] -= L[j][i] * coefs[j]
-            coefs[i] /= L[i][i]
+                coefficients[i] -= L[j][i] * coefficients[j]
+            coefficients[i] /= L[i][i]
 
-        spline.set_coefficients(coefs)
-
-        return True
-
-    @staticmethod
-    def is_grid_valid(spline, points):
-        knots = spline.get_knots()
-        k = spline.get_degree()
-        n = len(points)
-        j = 0
-        while j < n and points[j].x < knots[0]:
-            j += 1
-
-        for i in range(spline.get_internal_knots_num() + k + 1):
-            while j < n and points[j].x < knots[i]:
-                j += 1
-            if points[j].x >= knots[i + k + 1]:
-                return False
+        spline.set_coefficients(coefficients)
 
         return True
 
     def spec_dimensional_minimization(self, spline, points, sw):
-        k = spline.get_degree()
         g = spline.get_internal_knots_num()
         knots = spline.get_knots()
         alpha_max = math.inf
         a = spline.get_left_bound()
         b = spline.get_right_bound()
 
-        if self.m_dir[0] < 0:
-            alpha_max = (a - knots[k + 1]) / self.m_dir[0]
+        if self.dir[0] < 0:
+            alpha_max = (a - knots[1]) / self.dir[0]
         for i in range(g - 1):
-            if self.m_dir[i] > self.m_dir[i + 1]:
-                alpha_max = min(alpha_max, (knots[i + k + 2] - knots[i + k + 1]) / (self.m_dir[i] - self.m_dir[i + 1]))
-        if self.m_dir[g - 1] > 0:
-            alpha_max = min(alpha_max, (b - knots[g + k]) / self.m_dir[g - 1])
+            if self.dir[i] > self.dir[i + 1]:
+                alpha_max = min(alpha_max, (knots[i + 2] - knots[i + 1]) / (self.dir[i] - self.dir[i + 1]))
+        if self.dir[g - 1] > 0:
+            alpha_max = min(alpha_max, (b - knots[g]) / self.dir[g - 1])
 
         theta0 = self.m_error
         theta0_der = 0
-        for i in range(len(self.m_dir)):
-            theta0_der += self.m_dir[i] * self.m_error_deriv[i]
+        for i in range(len(self.dir)):
+            theta0_der += self.dir[i] * self.error_deriv[i]
 
         alpha0 = 0
         alpha2 = alpha_max / (1 - theta0 / alpha_max / theta0_der)
@@ -387,77 +368,67 @@ class CurveFitter:
         spline.set_knots(knots)
         return True
 
-    def count_norm_factors(self, points):
-        # todo: should we think that points.x is sorted? what if all weights are equal?
-        self.m_gamma = max(points.x) - min(points.x)
-        self.m_beta = max(points.y) - min(points.y)
-        self.m_mu = max(points.w) - min(points.w)
-
     def approximate_with_optimal_grid(self, spline, points, smooth_weight, eps1, eps2):
         if not self.initiate_grid(spline, points):
             return False
 
-        k = spline.get_degree()
         g = spline.get_internal_knots_num()
-        #self.count_norm_factors(points)
-        #smooth_weight *= 1e-10 * math.pow(self.m_gamma, 2 * k) * self.m_mu * self.m_mu
 
         if not self.approximate(spline, points, smooth_weight):
             return False
 
-        self.m_dir = [0] * g
-        self.m_error_deriv = [0] * g
-        self.m_fixed_knots = [0] * (g + 2 * k + 2)
+        self.dir = [0] * g
+        self.error_deriv = [0] * g
+        self.fixed_knots = [0] * (g + 2)
 
         self.delta(spline, points, smooth_weight)
         self.p = eps1 * self.m_delta * (spline.get_right_bound() - spline.get_left_bound()) / (g + 1) / (g + 1)
         self.m_error = self.m_delta + self.p * self.penalty(spline)
 
         for i in range(g):
-            self.m_error_deriv[i] = self.error_derivative(spline, points, smooth_weight, i + k + 1)
-            self.m_dir[i] = -self.m_error_deriv[i]
+            self.error_deriv[i] = self.error_derivative(spline, points, smooth_weight, i + 1)
+            self.dir[i] = -self.error_deriv[i]
 
-        old_norm = self.norm(self.m_dir)
+        old_norm = self.norm(self.dir)
         crit1 = eps1 + eps2
         crit2 = crit1
         max_num_of_iter = 1000
 
-        counter = 0
-        j = 0
+        iter = 0
         eps2_sq = eps2 * eps2
 
-        while (crit1 >= eps1 or crit2 >= eps2_sq) and j < max_num_of_iter:
-            self.m_fixed_knots = spline.get_knots().copy()
+        while (crit1 >= eps1 or crit2 >= eps2_sq) and iter < max_num_of_iter:
+            self.fixed_knots = spline.get_knots().copy()
 
             old_error = self.m_error
 
             # can't minimize further, knots are too close to each other
             if not self.spec_dimensional_minimization(spline, points, smooth_weight):
-                spline.set_knots(self.m_fixed_knots[k:(g + k + 2)])
+                spline.set_knots(self.fixed_knots)
                 return self.approximate(spline, points, smooth_weight)
 
             for i in range(g):
-                self.m_error_deriv[i] = self.error_derivative(spline, points, smooth_weight, i + k + 1)
+                self.error_deriv[i] = self.error_derivative(spline, points, smooth_weight, i + 1)
 
-            new_norm = self.norm(self.m_error_deriv)
+            new_norm = self.norm(self.error_deriv)
 
-            if j % g == 0:
+            if iter % g == 0:
                 for i in range(g):
-                    self.m_dir[i] = -self.m_error_deriv[i]
+                    self.dir[i] = -self.error_deriv[i]
             else:
                 temp = new_norm / old_norm
                 for i in range(g):
-                    self.m_dir[i] *= temp
-                    self.m_dir[i] -= self.m_error_deriv[i]
+                    self.dir[i] *= temp
+                    self.dir[i] -= self.error_deriv[i]
 
             numerator = 0
             denominator = 0
 
             knots = spline.get_knots()
-            for i in range(k + 1, g + k + 1):
-                temp = knots[i] - self.m_fixed_knots[i]
+            for i in range(1, len(knots) - 1):
+                temp = knots[i] - self.fixed_knots[i]
                 numerator += temp * temp
-                denominator += self.m_fixed_knots[i] * self.m_fixed_knots[i]
+                denominator += self.fixed_knots[i] * self.fixed_knots[i]
 
             crit1 = math.fabs(old_error - self.m_error) / old_error
             crit2 = numerator / denominator
@@ -484,8 +455,6 @@ def main():
         w[i] = 1.0 / math.fabs(x[i] - x[i - 1])
         w[i + 1] = w[i]
 
-    knots = [x[0], 2, 6, 7, 10, 15, x[len(x) - 1]]
-
     points = pnt.Points(x, y, w)
 
     # calculate new x's and y's
@@ -493,8 +462,11 @@ def main():
     y_curve = [None] * 1000
     y_curve_opt = [None] * 1000
 
+    knots = [x[0], 1, 2, 3, 4, x[len(x) - 1]]
     coefficients = [None] * (len(x) + 2)
-    s = splpckg.Spline(coefficients, knots)
+    knots.append(knots[len(knots) - 2] + 1)
+    knots.sort()
+    s = splpckg.Spline(coefficients, knots, 3)
     c = CurveFitter(s)
     c.initiate_grid(s, points)
     c.approximate(s, points, 0)
@@ -511,7 +483,7 @@ def main():
         knots_y_smoothed[index] = s.get_value(point)
         index += 1
 
-    c.approximate_with_optimal_grid(s, points, 0, 1e-2, 1e-4)
+    c.approximate_with_optimal_grid(s, points, 0, 1e-3, 1e-3)
 
     index = 0
     for point in x_curve:
@@ -524,8 +496,6 @@ def main():
     for point in knots2:
         knots_y[index] = s.get_value(point)
         index += 1
-
-    y_real = np.cos([0.001 * i * i for i in x_curve]) + 1
 
     plt.plot(x_curve, y_curve, x_curve, y_curve_opt, x, y, 'o', knots2, knots_y, 's', knots, knots_y_smoothed, 's')
     plt.xlim([x[0] - 1, x[-1] + 1])
