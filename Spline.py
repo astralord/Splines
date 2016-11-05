@@ -13,7 +13,6 @@ class Spline:
         self.knots = [self.a] * (self.k + 1) + [0] * self.g + [self.b] * (self.k + 1)
         for i in range(self.g):
             self.knots[i + self.k + 1] = horizontal_knots[i + 1]
-        self.buffer = [0] * (self.k + 1)
 
     def get_left_node_index(self, point, min_id=0):
         if point < self.a or point > self.b:
@@ -51,38 +50,36 @@ class Spline:
                            (self.knots[knot_id + deg + 1] - self.knots[knot_id]), deg)
 
         l = self.get_left_node_index(point, knot_id)
-        for i in range(deg + 1):
-            self.buffer[i] = 0
-        self.buffer[knot_id - l + deg] = 1
+        buffer = [0] * (deg + 1)
+        buffer[knot_id - l + deg] = 1
 
         for j in range(1, deg + 1):
             for i in reversed(range(l - deg + j, l + 1)):
                 alpha = (point - self.knots[i]) / (self.knots[i + 1 + deg - j] - self.knots[i])
-                self.buffer[i - l + deg] = alpha * self.buffer[i - l + deg] + (1 - alpha) * self.buffer[i - 1 - l + deg]
+                buffer[i - l + deg] = alpha * buffer[i - l + deg] + (1 - alpha) * buffer[i - 1 - l + deg]
 
-        return self.buffer[deg]
+        return buffer[deg]
 
     # evaluate all B-splines of degree deg < k on interval at given point
     def b_splines(self, point, deg):
         if deg > self.k:
-            return self.buffer
+            return False
 
         l = self.get_left_node_index(point)
-        for i in range(deg):
-            self.buffer[i] = 0
-        self.buffer[deg] = 1
+        buffer = [0] * (self.k + 1)
+        buffer[deg] = 1
 
         for r in range(1, deg + 1):
             v = l - r + 1
             w2 = (self.knots[v + r] - point) / (self.knots[v + r] - self.knots[v])
-            self.buffer[deg - r] = w2 * self.buffer[deg - r + 1]
+            buffer[deg - r] = w2 * buffer[deg - r + 1]
             for i in range(deg - r + 1, deg):
                 w1 = w2
                 v += 1
                 w2 = (self.knots[v + r] - point) / (self.knots[v + r] - self.knots[v])
-                self.buffer[i] = (1 - w1) * self.buffer[i] + w2 * self.buffer[i + 1]
-            self.buffer[deg] *= (1 - w2)
-        return self.buffer
+                buffer[i] = (1 - w1) * buffer[i] + w2 * buffer[i + 1]
+            buffer[deg] *= (1 - w2)
+        return buffer
 
     def get_internal_knots_num(self):
         return self.g
@@ -125,15 +122,17 @@ class Spline:
         if l < 0:
             return 0
 
+        buffer = [0] * (self.k + 1)
         # De Boor Algorithm
-        for i in range(l - self.k, l + 1):
-            self.buffer[i - l + self.k] = self.coefficients[i]
+        for i in range(self.k + 1):
+            buffer[i] = self.coefficients[i + l - self.k]
+
         for j in range(1, self.k + 1):
             for i in reversed(range(l - self.k + j, l + 1)):
                 alpha = (point - self.knots[i]) / (self.knots[i + 1 + self.k - j] - self.knots[i])
-                self.buffer[i - l + self.k] = alpha * self.buffer[i - l + self.k] + (1 - alpha) * self.buffer[i - 1 - l + self.k]
+                buffer[i - l + self.k] = alpha * buffer[i - l + self.k] + (1 - alpha) * buffer[i - 1 - l + self.k]
 
-        return self.buffer[self.k]
+        return buffer[self.k]
 
     # get value of derivative of built spline at point x
     def get_value_derivative(self, point, der_degree=1):
@@ -160,15 +159,16 @@ class Spline:
         for i in range(der_degree):
             alpha *= (self.k - i)
 
-        for i in range(l - self.k, l + 1):
-            self.buffer[i - l + self.k] = self.coefficients[i]
+        buffer = [0] * (self.k + 1)
+        for i in range(self.k + 1):
+            buffer[i] = self.coefficients[i + l - self.k]
 
         for j in range(1, der_degree):
             for i in reversed(range(l - self.k + j, j + 1)):
-                self.buffer[i - l + self.k] = (self.buffer[i - l + self.k] - self.buffer[i - l + self.k - 1]) / (self.knots[i + 1 + self.k - j] - self.knots[i])
+                buffer[i - l + self.k] = (buffer[i - l + self.k] - buffer[i - l + self.k - 1]) / (self.knots[i + 1 + self.k - j] - self.knots[i])
 
         for i in range(der_degree, self.k + 1):
-            spline += self.buffer[i] * self.b_spline(point, self.k - der_degree, l + i - self.k)
+            spline += buffer[i] * self.b_spline(point, self.k - der_degree, l + i - self.k)
 
         return alpha * spline
 
@@ -232,7 +232,7 @@ class Spline:
                 return -self.k * (self.coefficients[self.g + self.k] - self.coefficients[self.g + self.k - 1]) / (self.knots[knot_id] - self.b) / (self.knots[knot_id] - self.b) * (point - self.b)
             return 0
 
-        if point <= self.knots[knot_id- self.k] or point >= self.knots[knot_id + self.k]:
+        if point <= self.knots[knot_id - self.k] or point >= self.knots[knot_id + self.k]:
             return 0
 
         l = self.get_left_node_index(point)
@@ -242,18 +242,19 @@ class Spline:
         if l >= knot_id:
             l += 1
 
+        buffer = [0] * (self.k + 1)
         # De Boor algorithm
         for i in range(self.k + 1):
             if i < knot_id - l or i > knot_id - l + self.k:
-                self.buffer[i] = 0
+                buffer[i] = 0
             else:
-                self.buffer[i] = self.coefficients[i + l - self.k - 1] - self.coefficients[i + l - self.k]
+                buffer[i] = self.coefficients[i + l - self.k - 1] - self.coefficients[i + l - self.k]
                 if i + l + 1 <= knot_id:
-                    self.buffer[i] /= self.knots[i + l + 1] - self.knots[i + l - self.k]
+                    buffer[i] /= self.knots[i + l + 1] - self.knots[i + l - self.k]
                 elif i <= knot_id:
-                    self.buffer[i] /= self.knots[i + l] - self.knots[i + l - self.k]
+                    buffer[i] /= self.knots[i + l] - self.knots[i + l - self.k]
                 else:
-                    self.buffer[i] /= self.knots[i + l] - self.knots[i + l - self.k - 1]
+                    buffer[i] /= self.knots[i + l] - self.knots[i + l - self.k - 1]
 
         for j in range(1, self.k + 1):
             for i in reversed(range(l - self.k + j, l + 1)):
@@ -263,8 +264,8 @@ class Spline:
                     alpha = (point - self.knots[i]) / (self.knots[i + self.k - j] - self.knots[i])
                 else:
                     alpha = (point - self.knots[i - 1]) / (self.knots[i + self.k - j] - self.knots[i - 1])
-                self.buffer[i - l + self.k] = alpha * self.buffer[i - l + self.k] + (1 - alpha) * self.buffer[i - 1 - l + self.k]
-        return self.buffer[self.k]
+                buffer[i - l + self.k] = alpha * buffer[i - l + self.k] + (1 - alpha) * buffer[i - 1 - l + self.k]
+        return buffer[self.k]
 
     def insert_node(self, coordinate):
         j = self.get_left_node_index(coordinate)
