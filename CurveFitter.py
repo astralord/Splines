@@ -54,7 +54,7 @@ class CurveFitter:
     def error(self, spline, points, sw):
         return self.delta(spline, points, sw) + self.p * self.penalty(spline)
 
-    def error_derivative(self, spline, points, smoothing_weight, knot_id):
+    def error_gradient(self, spline, points, smoothing_weight, knot_id):
         # least-square error
         grad_error = 0
         for i in range(len(points)):
@@ -84,13 +84,13 @@ class CurveFitter:
             grad_error += smoothing_weight * sm_error
         return 2 * grad_error
 
-    def theta(self, spline, points, sw, alpha, direction):
+    def theta(self, spline, points, sw, alpha, direction, fixed_knots):
         g = spline.get_internal_knots_num()
         knots = [0] * (g + 2)
         knots[0] = spline.get_left_bound()
         knots[g + 1] = spline.get_right_bound()
         for i in range(g):
-            knots[i + 1] = self.fixed_knots[i + 1] + alpha * direction[i]
+            knots[i + 1] = fixed_knots[i + 1] + alpha * direction[i]
         spline.set_knots(knots)
 
         if self.approximate(spline, points, sw):
@@ -153,7 +153,7 @@ class CurveFitter:
 
         return True
 
-    def spec_dimensional_minimization(self, spline, points, sw, direction):
+    def spec_dimensional_minimization(self, spline, points, sw, direction, error_derivative, fixed_knots):
         g = spline.get_internal_knots_num()
         knots = spline.get_knots()
         alpha_max = math.inf
@@ -171,77 +171,77 @@ class CurveFitter:
         theta0 = self.m_error
         theta0_der = 0
         for i in range(len(direction)):
-            theta0_der += direction[i] * self.error_deriv[i]
+            theta0_der += direction[i] * error_derivative[i]
 
         alpha0 = 0
         alpha2 = alpha_max / (1 - theta0 / alpha_max / theta0_der)
         alpha1 = 0.5 * alpha2
-        Q0 = self.m_delta
-        R0 = self.m_penalty
-        theta1 = self.theta(spline, points, sw, alpha1, direction)
+        q0 = self.m_delta
+        r0 = self.m_penalty
+        theta1 = self.theta(spline, points, sw, alpha1, direction, fixed_knots)
         if theta1 < 0:
             return False
-        Q1 = self.m_delta
-        R1 = self.m_penalty
+        q1 = self.m_delta
+        r1 = self.m_penalty
 
         iteration = 0
         max_num_of_iterations = 10
         while theta1 >= theta0 and iteration < max_num_of_iterations:
             alpha_tilde = -0.5 * theta0_der * alpha1 * alpha1 / (theta1 - theta0 - theta0_der * alpha1)
             alpha1 = max(0.1 * alpha1, alpha_tilde)
-            theta1 = self.theta(spline, points, sw, alpha1, direction)
+            theta1 = self.theta(spline, points, sw, alpha1, direction, fixed_knots)
             if theta1 < 0:
                 return False
-            Q1 = self.m_delta
-            R1 = self.m_penalty
+            q1 = self.m_delta
+            r1 = self.m_penalty
             iteration += 1
 
         if iteration > 0:
             if theta1 > theta0:
-                self.theta(spline, points, sw, alpha0, direction)
+                self.theta(spline, points, sw, alpha0, direction, fixed_knots)
                 # should we return false in the case of if?
             return True
 
-        theta2 = self.theta(spline, points, sw, alpha2, direction)
+        theta2 = self.theta(spline, points, sw, alpha2, direction, fixed_knots)
         if theta2 < 0:
             return False
-        Q2 = self.m_delta
-        R2 = self.m_penalty
+        q2 = self.m_delta
+        r2 = self.m_penalty
 
         while theta2 < theta1:
             alpha0 = alpha1
-            Q0 = Q1
-            R0 = R1
+            q0 = q1
+            r0 = r1
             alpha1 = alpha2
             theta1 = theta2
-            Q1 = Q2
-            R1 = R2
+            q1 = q2
+            r1 = r2
 
             alpha2 = min(2 * alpha1, 0.5 * (alpha_max + alpha1))
-            theta2 = self.theta(spline, points, sw, alpha2, direction)
+            theta2 = self.theta(spline, points, sw, alpha2, direction, fixed_knots)
             if theta2 < 0:
                 return False
 
-            Q2 = self.m_delta
-            R2 = self.m_penalty
+            q2 = self.m_delta
+            r2 = self.m_penalty
 
         # find Q coefficients
-        a0 = Q0
+        a0 = q0
         diff1 = alpha1 - alpha0
         diff2 = alpha2 - alpha0
-        a2 = (Q1 - Q0) / diff1
-        a2 -= (Q2 - Q0) / diff2
+        a2 = (q1 - q0) / diff1
+        a2 -= (q2 - q0) / diff2
         a2 /= alpha1 - alpha2
-        a1 = (Q1 - a0) / diff1
+        a1 = (q1 - a0) / diff1
         a1 -= a2 * diff1
 
         # find R coefficients
         fraction = diff1 / diff2
-        numerator = R1 - R0 - fraction * (R2 - R0)
+        numerator = r1 - r0 - fraction * (r2 - r0)
         temp = math.log((alpha_max - alpha1) / (alpha_max - alpha0))
         denominator = temp - fraction * math.log((alpha_max - alpha2) / (alpha_max - alpha0))
         b2 = numerator / denominator
-        b1 = (R1 - R0 - b2 * temp) / diff1
+        b1 = (r1 - r0 - b2 * temp) / diff1
 
         # find coefficients of quadratic equation
         a = -2 * a2
@@ -257,7 +257,7 @@ class CurveFitter:
         elif 0 < root2 < alpha_max:
             alpha_res = root2
 
-        theta_res = self.theta(spline, points, sw, alpha_res, direction)
+        theta_res = self.theta(spline, points, sw, alpha_res, direction, fixed_knots)
 
         if theta_res < 0:
             return False
@@ -314,16 +314,15 @@ class CurveFitter:
             return False
 
         direction = [0] * g
-        self.error_deriv = [0] * g
-        self.fixed_knots = [0] * (g + 2)
+        error_derivative = [0] * g
 
         self.delta(spline, points, smooth_weight)
         self.p = eps1 * self.m_delta * (spline.get_right_bound() - spline.get_left_bound()) / (g + 1) / (g + 1)
         self.m_error = self.m_delta + self.p * self.penalty(spline)
 
         for i in range(g):
-            self.error_deriv[i] = self.error_derivative(spline, points, smooth_weight, i + 1)
-            direction[i] = -self.error_deriv[i]
+            error_derivative[i] = self.error_gradient(spline, points, smooth_weight, i + 1)
+            direction[i] = -error_derivative[i]
 
         old_norm = self.norm(direction)
         criteria1 = eps1 + eps2
@@ -334,37 +333,37 @@ class CurveFitter:
         eps2_sq = eps2 * eps2
 
         while (criteria1 >= eps1 or criteria2 >= eps2_sq) and iteration < max_num_of_iter:
-            self.fixed_knots = spline.get_knots().copy()
+            fixed_knots = spline.get_knots().copy()
 
             old_error = self.m_error
 
             # can't minimize further, knots are too close to each other
-            if not self.spec_dimensional_minimization(spline, points, smooth_weight, direction):
-                spline.set_knots(self.fixed_knots)
+            if not self.spec_dimensional_minimization(spline, points, smooth_weight, direction, error_derivative, fixed_knots):
+                spline.set_knots(fixed_knots)
                 return self.approximate(spline, points, smooth_weight)
 
             for i in range(g):
-                self.error_deriv[i] = self.error_derivative(spline, points, smooth_weight, i + 1)
+                error_derivative[i] = self.error_gradient(spline, points, smooth_weight, i + 1)
 
-            new_norm = self.norm(self.error_deriv)
+            new_norm = self.norm(error_derivative)
 
             if iteration % g == 0:
                 for i in range(g):
-                    direction[i] = -self.error_deriv[i]
+                    direction[i] = -error_derivative[i]
             else:
                 temp = new_norm / old_norm
                 for i in range(g):
                     direction[i] *= temp
-                    direction[i] -= self.error_deriv[i]
+                    direction[i] -= error_derivative[i]
 
             numerator = 0
             denominator = 0
 
             knots = spline.get_knots()
             for i in range(1, len(knots) - 1):
-                temp = knots[i] - self.fixed_knots[i]
+                temp = knots[i] - fixed_knots[i]
                 numerator += temp * temp
-                denominator += self.fixed_knots[i] * self.fixed_knots[i]
+                denominator += fixed_knots[i] * fixed_knots[i]
 
             criteria1 = math.fabs(old_error - self.m_error) / old_error
             criteria2 = numerator / denominator
