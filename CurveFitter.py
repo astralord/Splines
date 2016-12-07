@@ -20,71 +20,7 @@ class CurveFitter:
             self.m_penalty += 1.0 / (knots[i + 1] - knots[i])
         self.m_error = self.m_delta + self.p * self.m_penalty
         return self.m_penalty
-
-    @staticmethod
-    def interpolate_natural(spline, points):
-        k = spline.get_degree()
-        if not k == 3:
-            return False  # todo: do interpolation for k != 3
-        n = len(points)
-        x = points.x
-        spline.set_knots(x)
-
-        f = [None] * n
-        for i in range(1, n - 1):
-            f[i] = points[i].y
-        f[0] = -points[0].y * spline.b_spline_derivative(x[0], k, 0, 2)
-        f[n - 1] = -points[n - 1].y * spline.b_spline_derivative(x[n - 1], k, n - 2 + k, 2)
-
-        a = [[0 for i in range(n)] for j in range(n)]
-        a[0][0] = spline.b_spline_derivative(x[0], k, 1, 2)
-        a[0][1] = spline.b_spline_derivative(x[0], k, 2, 2)
-        for i in range(1, n - 1):
-            a[i][i - 1] = spline.b_spline(x[i], k, i)
-            a[i][i] = spline.b_spline(x[i], k, i + 1)
-            a[i][i + 1] = spline.b_spline(x[i], k, i + 2)
-        a[n - 1][n - 1] = spline.b_spline_derivative(x[n - 1], k, n + k - 3, 2)
-        a[n - 1][n - 2] = spline.b_spline_derivative(x[n - 1], k, n + k - 4, 2)
-
-        res = np.linalg.solve(a, f)
-        res = np.insert(res, 0, points[0].y)
-        res = np.append(res, points[n - 1].y)
-
-        spline.set_coefficients(res)
-
-        return True
-
-    @staticmethod
-    def interpolate_clamped(spline, points, left_bound, right_bound):
-        k = spline.get_degree()
-        if not k == 3:
-            return False  # todo: do interpolation for k != 3
-        n = len(points)
-        x = points.x
-        spline.set_knots(x)
-
-        f = [None] * n
-        for i in range(1, n - 1):
-            f[i] = points[i].y
-        f[0] = left_bound - points[0].y * spline.b_spline_derivative(x[0], k, 0)
-        f[n - 1] = right_bound - points[n - 1].y * spline.b_spline_derivative(x[n - 1], k, n - 2 + k)
-
-        a = [[0 for i in range(n)] for j in range(n)]
-        a[0][0] = spline.b_spline_derivative(x[0], k, 1)
-        for i in range(1, n - 1):
-            a[i][i - 1] = spline.b_spline(x[i], k, i)
-            a[i][i] = spline.b_spline(x[i], k, i + 1)
-            a[i][i + 1] = spline.b_spline(x[i], k, i + 2)
-        a[n - 1][n - 1] = spline.b_spline_derivative(x[n - 1], k, n + k - 3)
-
-        res = np.linalg.solve(a, f)
-        res = np.insert(res, 0, points[0].y)
-        res = np.append(res, points[n - 1].y)
-
-        spline.set_coefficients(res)
-
-        return True
-
+    
     def delta(self, spline, points, smoothing_weight):
         self.m_delta = 0
         for i in range(len(points)):
