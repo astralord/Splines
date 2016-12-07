@@ -148,13 +148,13 @@ class CurveFitter:
             grad_error += smoothing_weight * sm_error
         return 2 * grad_error
 
-    def theta(self, spline, points, sw, alpha):
+    def theta(self, spline, points, sw, alpha, direction):
         g = spline.get_internal_knots_num()
         knots = [0] * (g + 2)
         knots[0] = spline.get_left_bound()
         knots[g + 1] = spline.get_right_bound()
         for i in range(g):
-            knots[i + 1] = self.fixed_knots[i + 1] + alpha * self.dir[i]
+            knots[i + 1] = self.fixed_knots[i + 1] + alpha * direction[i]
         spline.set_knots(knots)
 
         if self.approximate(spline, points, sw):
@@ -217,56 +217,56 @@ class CurveFitter:
 
         return True
 
-    def spec_dimensional_minimization(self, spline, points, sw):
+    def spec_dimensional_minimization(self, spline, points, sw, direction):
         g = spline.get_internal_knots_num()
         knots = spline.get_knots()
         alpha_max = math.inf
         a = spline.get_left_bound()
         b = spline.get_right_bound()
 
-        if self.dir[0] < 0:
-            alpha_max = (a - knots[1]) / self.dir[0]
+        if direction[0] < 0:
+            alpha_max = (a - knots[1]) / direction[0]
         for i in range(g - 1):
-            if self.dir[i] > self.dir[i + 1]:
-                alpha_max = min(alpha_max, (knots[i + 2] - knots[i + 1]) / (self.dir[i] - self.dir[i + 1]))
-        if self.dir[g - 1] > 0:
-            alpha_max = min(alpha_max, (b - knots[g]) / self.dir[g - 1])
+            if direction[i] > direction[i + 1]:
+                alpha_max = min(alpha_max, (knots[i + 2] - knots[i + 1]) / (direction[i] - direction[i + 1]))
+        if direction[g - 1] > 0:
+            alpha_max = min(alpha_max, (b - knots[g]) / direction[g - 1])
 
         theta0 = self.m_error
         theta0_der = 0
-        for i in range(len(self.dir)):
-            theta0_der += self.dir[i] * self.error_deriv[i]
+        for i in range(len(direction)):
+            theta0_der += direction[i] * self.error_deriv[i]
 
         alpha0 = 0
         alpha2 = alpha_max / (1 - theta0 / alpha_max / theta0_der)
         alpha1 = 0.5 * alpha2
         Q0 = self.m_delta
         R0 = self.m_penalty
-        theta1 = self.theta(spline, points, sw, alpha1)
+        theta1 = self.theta(spline, points, sw, alpha1, direction)
         if theta1 < 0:
             return False
         Q1 = self.m_delta
         R1 = self.m_penalty
 
-        iter = 0
-        max_num_of_iter = 10
-        while theta1 >= theta0 and iter < max_num_of_iter:
+        iteration = 0
+        max_num_of_iterations = 10
+        while theta1 >= theta0 and iteration < max_num_of_iterations:
             alpha_tilde = -0.5 * theta0_der * alpha1 * alpha1 / (theta1 - theta0 - theta0_der * alpha1)
             alpha1 = max(0.1 * alpha1, alpha_tilde)
-            theta1 = self.theta(spline, points, sw, alpha1)
+            theta1 = self.theta(spline, points, sw, alpha1, direction)
             if theta1 < 0:
                 return False
             Q1 = self.m_delta
             R1 = self.m_penalty
-            iter += 1
+            iteration += 1
 
-        if iter > 0:
+        if iteration > 0:
             if theta1 > theta0:
-                self.theta(spline, points, sw, alpha0)
+                self.theta(spline, points, sw, alpha0, direction)
                 # should we return false in the case of if?
             return True
 
-        theta2 = self.theta(spline, points, sw, alpha2)
+        theta2 = self.theta(spline, points, sw, alpha2, direction)
         if theta2 < 0:
             return False
         Q2 = self.m_delta
@@ -282,7 +282,7 @@ class CurveFitter:
             R1 = R2
 
             alpha2 = min(2 * alpha1, 0.5 * (alpha_max + alpha1))
-            theta2 = self.theta(spline, points, sw, alpha2)
+            theta2 = self.theta(spline, points, sw, alpha2, direction)
             if theta2 < 0:
                 return False
 
@@ -321,7 +321,7 @@ class CurveFitter:
         elif 0 < root2 < alpha_max:
             alpha_res = root2
 
-        theta_res = self.theta(spline, points, sw, alpha_res)
+        theta_res = self.theta(spline, points, sw, alpha_res, direction)
 
         if theta_res < 0:
             return False
@@ -377,7 +377,7 @@ class CurveFitter:
         if not self.approximate(spline, points, smooth_weight):
             return False
 
-        self.dir = [0] * g
+        direction = [0] * g
         self.error_deriv = [0] * g
         self.fixed_knots = [0] * (g + 2)
 
@@ -387,23 +387,23 @@ class CurveFitter:
 
         for i in range(g):
             self.error_deriv[i] = self.error_derivative(spline, points, smooth_weight, i + 1)
-            self.dir[i] = -self.error_deriv[i]
+            direction[i] = -self.error_deriv[i]
 
-        old_norm = self.norm(self.dir)
-        crit1 = eps1 + eps2
-        crit2 = crit1
+        old_norm = self.norm(direction)
+        criteria1 = eps1 + eps2
+        criteria2 = criteria1
         max_num_of_iter = 1000
 
-        iter = 0
+        iteration = 0
         eps2_sq = eps2 * eps2
 
-        while (crit1 >= eps1 or crit2 >= eps2_sq) and iter < max_num_of_iter:
+        while (criteria1 >= eps1 or criteria2 >= eps2_sq) and iteration < max_num_of_iter:
             self.fixed_knots = spline.get_knots().copy()
 
             old_error = self.m_error
 
             # can't minimize further, knots are too close to each other
-            if not self.spec_dimensional_minimization(spline, points, smooth_weight):
+            if not self.spec_dimensional_minimization(spline, points, smooth_weight, direction):
                 spline.set_knots(self.fixed_knots)
                 return self.approximate(spline, points, smooth_weight)
 
@@ -412,14 +412,14 @@ class CurveFitter:
 
             new_norm = self.norm(self.error_deriv)
 
-            if iter % g == 0:
+            if iteration % g == 0:
                 for i in range(g):
-                    self.dir[i] = -self.error_deriv[i]
+                    direction[i] = -self.error_deriv[i]
             else:
                 temp = new_norm / old_norm
                 for i in range(g):
-                    self.dir[i] *= temp
-                    self.dir[i] -= self.error_deriv[i]
+                    direction[i] *= temp
+                    direction[i] -= self.error_deriv[i]
 
             numerator = 0
             denominator = 0
@@ -430,24 +430,63 @@ class CurveFitter:
                 numerator += temp * temp
                 denominator += self.fixed_knots[i] * self.fixed_knots[i]
 
-            crit1 = math.fabs(old_error - self.m_error) / old_error
-            crit2 = numerator / denominator
+            criteria1 = math.fabs(old_error - self.m_error) / old_error
+            criteria2 = numerator / denominator
 
             old_norm = new_norm
 
         return True
 
 
-def main():
-    x = np.zeros(60)
+def get_x(length):
+    x = np.zeros(length)
     for i in range(len(x)):
-        x[i] = i + 1 / (i + 1) * np.random.rand()
+        x[i] = i + 1.0 / (i + 1) * np.random.rand()
     x = np.concatenate((x, x), 0)
     x = np.sort(x)
 
-    y = [0] * len(x)
-    w = [1] * len(x)
-    for i in range(0, len(x), 2):
+    return x
+
+
+def get_data_1():
+    x = get_x(60)
+    n = len(x)
+    y = [0] * n
+    w = [1] * n
+    for i in range(0, n, 2):
+        y[i] = np.cos(0.2 * x[i])
+        err = np.random.rand() * 15 / (x[i] + 10)
+        y[i + 1] = y[i] + err
+        y[i] -= err
+        w[i] = 1.0 / math.fabs(x[i] - x[i - 1])
+        w[i + 1] = w[i]
+
+    return pnt.Points(x, y, w)
+
+
+def get_data_2():
+    x = get_x(10)
+    n = len(x)
+    y = [0] * n
+    w = [1] * n
+    for i in range(0, n, 2):
+        y[i] = np.cos(0.2 * x[i])
+        y[i] += 0.4 * np.cos(0.5 * x[i])
+        err = np.random.rand() / 3
+        y[i + 1] = y[i] + err
+        y[i] -= err
+        w[i] = 1.0 / math.fabs(x[i] - x[i - 1])
+        w[i + 1] = w[i]
+
+    return pnt.Points(x, y, w)
+
+
+def get_data_3():
+    x = get_x(60)
+    n = len(x)
+    y = [0] * n
+    w = [1] * n
+    for i in range(0, n, 2):
         y[i] = np.cos(0.005 * x[i] * x[i])
         err = np.random.rand() * 15 / (x[i] + 10)
         y[i + 1] = y[i] + err
@@ -455,21 +494,26 @@ def main():
         w[i] = 1.0 / math.fabs(x[i] - x[i - 1])
         w[i + 1] = w[i]
 
-    points = pnt.Points(x, y, w)
+    return pnt.Points(x, y, w)
+
+
+def main():
+    points = get_data_3()
 
     # calculate new x's and y's
-    x_curve = np.linspace(x[0], x[-1], 1000)
+    x_curve = np.linspace(points.x[0], points.x[-1], 1000)
     y_curve = [None] * 1000
     y_curve_opt = [None] * 1000
 
-    knots = [x[0], 1, 2, 3, 4, x[len(x) - 1]]
-    coefficients = [None] * (len(x) + 2)
+    knots = [points.x[0], 1, 2, 3, 4, points.x[len(points) - 1]]
+    coefficients = [None] * (len(points) + 2)
     knots.append(knots[len(knots) - 2] + 1)
     knots.sort()
     s = splpckg.Spline(coefficients, knots, 3)
     c = CurveFitter(s)
     c.initiate_grid(s, points)
-    c.approximate(s, points, 0)
+    q = 1e-9
+    c.approximate(s, points, q)
 
     index = 0
     for point in x_curve:
@@ -478,12 +522,12 @@ def main():
 
     index = 0
     knots = s.get_knots()
-    knots_y_smoothed = [0] * len(knots)
+    knots_y_uni = [0] * len(knots)
     for point in knots:
-        knots_y_smoothed[index] = s.get_value(point)
+        knots_y_uni[index] = s.get_value(point)
         index += 1
 
-    c.approximate_with_optimal_grid(s, points, 0, 1e-3, 1e-3)
+    c.approximate_with_optimal_grid(s, points, q, 1e-3, 1e-3)
 
     index = 0
     for point in x_curve:
@@ -497,9 +541,9 @@ def main():
         knots_y[index] = s.get_value(point)
         index += 1
 
-    plt.plot(x_curve, y_curve, x_curve, y_curve_opt, x, y, 'o', knots2, knots_y, 's', knots, knots_y_smoothed, 's')
-    plt.xlim([x[0] - 1, x[-1] + 1])
-    plt.legend(["Spline on uniform grid", "Spline on optimal grid", "Data"])
+    plt.plot(x_curve, y_curve, x_curve, y_curve_opt, points.x, points.y, 'o', knots, knots_y_uni, 's', knots2, knots_y, 's')
+    plt.legend(["Spline on uniform grid", "Spline on optimal grid", "Data", "Evenly spreaded knots", "Optimally spreaded knots"])
+    plt.xlim([points.x[0] - 1, points.x[-1] + 1])
     plt.show()
 
 main()
