@@ -1,3 +1,5 @@
 language: python
+install:
+   - pip install matplotlib
 script:
   - python CurveFitter.py
