@@ -23,7 +23,7 @@ class CurveFitter:
 
     def delta(self, spline, points, smoothing_weight):
         self.m_delta = 0
-        for point in points
+        for point in points:
             e = point.w * (point.y - spline.get_value(point.x))
             self.m_delta += e * e
         nu = 0
