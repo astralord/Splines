@@ -20,11 +20,11 @@ class CurveFitter:
             self.m_penalty += 1.0 / (knots[i + 1] - knots[i])
         self.m_error = self.m_delta + self.p * self.m_penalty
         return self.m_penalty
-    
+
     def delta(self, spline, points, smoothing_weight):
         self.m_delta = 0
-        for i in range(len(points)):
-            e = points[i].w * (points[i].y - spline.get_value(points[i].x))
+        for point in points
+            e = point.w * (point.y - spline.get_value(point.x))
             self.m_delta += e * e
         nu = 0
         if smoothing_weight > 0:
@@ -57,10 +57,10 @@ class CurveFitter:
     def error_gradient(self, spline, points, smoothing_weight, knot_id):
         # least-square error
         grad_error = 0
-        for i in range(len(points)):
-            w_sq = points[i].w * points[i].w
-            diff = points[i].y - spline.get_value(points[i].x)
-            grad_error -= spline.get_value_derivative_knot(points[i].x, knot_id + spline.get_degree()) * w_sq * diff
+        for point in points:
+            w_sq = point.w * point.w
+            diff = point.y - spline.get_value(point.x)
+            grad_error -= spline.get_value_derivative_knot(point.x, knot_id + spline.get_degree()) * w_sq * diff
 
         # penalty error
         if self.p > 0:
@@ -170,8 +170,8 @@ class CurveFitter:
 
         theta0 = self.m_error
         theta0_der = 0
-        for i in range(len(direction)):
-            theta0_der += direction[i] * error_derivative[i]
+        for dir, error_der in zip(direction, error_derivative):
+            theta0_der += dir * error_der
 
         alpha0 = 0
         alpha2 = alpha_max / (1 - theta0 / alpha_max / theta0_der)
@@ -375,7 +375,7 @@ class CurveFitter:
 
 def get_x(length):
     x = np.zeros(length)
-    for i in range(len(x)):
+    for i in range(length):
         x[i] = i + 1.0 / (i + 1) * np.random.rand()
     x = np.concatenate((x, x), 0)
     x = np.sort(x)
