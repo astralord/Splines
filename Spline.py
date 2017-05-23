@@ -225,14 +225,16 @@ class Spline:
     def get_value_derivative_knot(self, point, knot_id):
         if point < self.a:
             if knot_id == self.k + 1:
-                return -self.k * (self.coefficients[1] - self.coefficients[0]) / 
-                       (self.knots[knot_id] - self.a) / (self.knots[knot_id] - self.a) * (point - self.a)
+                numerator = -self.k * (self.coefficients[1] - self.coefficients[0]) * (point - self.a)
+                denominator = (self.knots[knot_id] - self.a) * (self.knots[knot_id] - self.a)
+                return numerator / denominator
             return 0
 
         if point > self.b:
             if knot_id == self.g + self.k:
-                return -self.k * (self.coefficients[self.g + self.k] - self.coefficients[self.g + self.k - 1]) / 
-                       (self.knots[knot_id] - self.b) / (self.knots[knot_id] - self.b) * (point - self.b)
+                numerator = -self.k * (self.coefficients[self.g + self.k] - self.coefficients[self.g + self.k - 1]) * (point - self.b)
+                denominator = (self.knots[knot_id] - self.b) * (self.knots[knot_id] - self.b)
+                return numerator / denominator
             return 0
 
         if point <= self.knots[knot_id - self.k] or point >= self.knots[knot_id + self.k]:
