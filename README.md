@@ -1,5 +1,5 @@
 # Splines
-[![CodeFactor](https://www.codefactor.io/repository/github/stochasticengineer/splines/badge/master)](https://www.codefactor.io/repository/github/stochasticengineer/splines/overview/master)
+[![CodeFactor](https://www.codefactor.io/repository/github/quanteeks/splines/badge)](https://www.codefactor.io/repository/github/quanteeks/splines)
 
 Approximate spline of any degree to given data
 
