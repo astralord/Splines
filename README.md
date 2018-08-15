@@ -3,6 +3,6 @@
 
 Approximate spline of any degree to given data
 
-(full description in Russian of how algorithm works: https://habr.com/post/314218/)
+Full description of an algorithm (in Russian): https://habr.com/post/314218/)
 
 ![alt tag](https://github.com/StochasticEngineer/Splines/blob/master/figure_1.png)
