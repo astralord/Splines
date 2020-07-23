@@ -1,5 +1,5 @@
 # Splines
-[![CodeFactor](https://www.codefactor.io/repository/github/quanteeks/splines/badge)](https://www.codefactor.io/repository/github/quanteeks/splines)
+[![CodeFactor](https://www.codefactor.io/repository/github/the-freeman/splines/badge)](https://www.codefactor.io/repository/github/the-freeman/splines)
 
 Approximate spline of any degree to given data
 
